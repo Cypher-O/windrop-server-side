@@ -13,6 +13,6 @@ log = "0.4"
 env_logger = "0.9"
 actix-service = "2.0"
 actix-http = "3.0"
-uuid = "1.1"
 actix-web-actors = "4.0"
-actix-cors = "0.6"   # for CORS if you plan to use with Flutter frontend
+actix-cors = "0.6"
+uuid = { version = "1.0", features = ["v4"] }
