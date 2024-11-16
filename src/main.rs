@@ -4,7 +4,6 @@ mod services;
 mod repositories;
 mod middleware;
 
-use actix_web::web::JsonConfig;
 use actix_web::{web, App, HttpServer};
 use actix_web::middleware::Logger as ActixLogger;
 use actix_cors::Cors;
@@ -29,8 +28,8 @@ async fn main() -> std::io::Result<()> {
             .wrap(rate_limiter.clone())
             .wrap(Cors::permissive())
             .app_data(file_service.clone())
-            .app_data(JsonConfig::default().limit(104857600)) 
-            .app_data(web::FormConfig::default().limit(104857600)) 
+            .app_data(web::JsonConfig::default().limit(usize::MAX))
+            .app_data(web::FormConfig::default().limit(usize::MAX))
             .service(
                 web::scope("/api")
                     .route("/upload", web::post().to(upload_file))
