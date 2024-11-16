@@ -2,6 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
 use crate::models::file::File;
+use crate::repositories::FileRepository;
+use crate::models::File;
+
 
 pub struct FileService {
     files: Arc<Mutex<HashMap<String, File>>>,

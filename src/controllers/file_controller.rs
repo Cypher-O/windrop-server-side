@@ -1,15 +1,15 @@
-use actix_web::{web, HttpResponse, Responder, post, get};
-use crate::models::{ApiResponse, File};
-use crate::services::FileService;
 use actix_multipart::Multipart;
 use futures_util::stream::StreamExt;
 use futures_util::sink::SinkExt;
 use std::io::Write;
 use uuid::Uuid;
+use crate::models::{ApiResponse, File};
+use crate::services::FileService;
+use actix_web::{web, HttpResponse, Responder, post, get};
+
 
 #[post("/upload")]
-async fn upload_file(mut payload: Multipart, file_service: web::Data<FileService>) -> impl Responder {
-    // Simulate file upload logic
+pub async fn upload_file(mut payload: Multipart, file_service: web::Data<FileService>) -> impl Responder {
     let mut file_id = String::new();
     let mut file_name = String::new();
     let mut file_size: u64 = 0;
@@ -19,16 +19,26 @@ async fn upload_file(mut payload: Multipart, file_service: web::Data<FileService
         let mut field = item.unwrap();
         file_name = field.name().to_string();
         
-        // For simplicity, we simulate saving the file by counting bytes
+        // Simulate saving the file by counting bytes
         while let Some(chunk) = field.next().await {
             let chunk = chunk.unwrap();
             file_size += chunk.len() as u64;
         }
     }
 
-    // Simulate creating a file object and storing it in the file service
+    // Ensure a file is actually uploaded
+    if file_size == 0 {
+        return HttpResponse::BadRequest().json(ApiResponse::<File>::new(
+            1, 
+            "error", 
+            "No file data received", 
+            None
+        ));
+    }
+
+    // Simulate creating a file object
     file_id = Uuid::new_v4().to_string();
-    let file = File::new(file_id.clone(), file_name, file_size);
+    let file = File::new(file_id.clone(), file_name, file_size, vec![]); // For now, an empty data vector
 
     // Add to file service (this is an in-memory service in this case)
     file_service.add_file(file.clone());
@@ -45,7 +55,7 @@ async fn upload_file(mut payload: Multipart, file_service: web::Data<FileService
 }
 
 #[get("/files/{id}")]
-async fn get_file(file_id: web::Path<String>, file_service: web::Data<FileService>) -> impl Responder {
+pub async fn get_file(file_id: web::Path<String>, file_service: web::Data<FileService>) -> impl Responder {
     let file_id = file_id.into_inner();
 
     // Retrieve file from the service
