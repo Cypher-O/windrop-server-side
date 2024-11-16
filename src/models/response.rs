@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiResponse<T> {
     pub code: i32,
     pub status: String,
     pub message: String,
-    pub data: Option<T>, 
+    pub data: Option<T>,
 }
 
 impl<T> ApiResponse<T> {

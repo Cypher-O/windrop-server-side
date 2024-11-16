@@ -16,3 +16,7 @@ actix-http = "3.0"
 actix-web-actors = "4.0"
 actix-cors = "0.6"
 uuid = { version = "1.0", features = ["v4"] }
+actix-multipart = "0.6"
+futures = "0.3"
+futures-util = { version = "0.3", features = ["sink"] }
+bytes = "1.0"

@@ -1,29 +1,23 @@
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-
 use crate::models::file::File;
-use crate::repositories::FileRepository;
-use crate::models::File;
-
+use crate::repositories::file_repository::FileRepository;
+use std::sync::Arc;
 
 pub struct FileService {
-    files: Arc<Mutex<HashMap<String, File>>>,
+    repository: Arc<FileRepository>,
 }
 
 impl FileService {
     pub fn new() -> Self {
         FileService {
-            files: Arc::new(Mutex::new(HashMap::new())),
+            repository: Arc::new(FileRepository::new()),
         }
     }
 
     pub fn add_file(&self, file: File) {
-        let mut files = self.files.lock().unwrap();
-        files.insert(file.id.clone(), file);
+        self.repository.save(file);
     }
 
     pub fn get_file(&self, file_id: &str) -> Option<File> {
-        let files = self.files.lock().unwrap();
-        files.get(file_id).cloned()
+        self.repository.get(file_id)
     }
 }

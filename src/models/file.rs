@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct File {
     pub id: String,
     pub name: String,
-    pub size: u64,  // Size in bytes
-    pub data: Vec<u8>,  // File data
+    pub size: u64,
+    pub data: Vec<u8>,
 }
 
 impl File {
