@@ -3,6 +3,7 @@ mod models;
 mod services;
 mod repositories;
 mod middleware;
+mod storage;
 
 use actix_web::{web, App, HttpServer};
 use actix_web::middleware::Logger as ActixLogger;
@@ -14,12 +15,29 @@ use std::time::Duration;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init();
-
-    let file_service = web::Data::new(FileService::new());
+    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
     
-    // Configure rate limiter: 100 requests per minute per IP
+    // Initialize storage path
+    let storage_path = std::env::current_dir()?.join("file_storage");
+    
+    // Create FileService instance with proper error handling
+    let file_service = match FileService::new(storage_path) {
+        Ok(service) => {
+            log::info!("FileService initialized successfully");
+            web::Data::new(service)
+        },
+        Err(e) => {
+            log::error!("Failed to initialize FileService: {}", e);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to initialize FileService"
+            ));
+        }
+    };
+    
     let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
+
+    log::info!("Starting HTTP server at http://127.0.0.1:8080");
 
     HttpServer::new(move || {
         App::new()
@@ -29,13 +47,15 @@ async fn main() -> std::io::Result<()> {
             .wrap(Cors::permissive())
             .app_data(file_service.clone())
             .app_data(web::JsonConfig::default().limit(usize::MAX))
-            .app_data(web::FormConfig::default().limit(usize::MAX))
+            .app_data(web::PayloadConfig::default().limit(usize::MAX))
+            // .timeout(std::time::Duration::from_secs(300))
             .service(
                 web::scope("/api")
                     .route("/upload", web::post().to(upload_file))
                     .route("/files/{id}", web::get().to(get_file))
             )
     })
+    .workers(4)
     .bind("127.0.0.1:8080")?
     .run()
     .await

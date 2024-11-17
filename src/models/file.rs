@@ -1,21 +1,23 @@
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
     pub id: String,
-    pub name: String,
+    pub filename: String,
     pub size: u64,
-    pub data: Vec<u8>,
+    #[serde(skip_serializing)]
+    pub file_path: PathBuf,
 }
 
 impl File {
-    pub fn new(name: String, size: u64, data: Vec<u8>) -> Self {
-        File {
+    pub fn new(filename: String, size: u64, file_path: PathBuf) -> Self {
+        Self {
             id: Uuid::new_v4().to_string(),
-            name,
+            filename,
             size,
-            data,
+            file_path,
         }
     }
 }
