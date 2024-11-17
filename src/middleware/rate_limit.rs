@@ -1,11 +1,15 @@
-use actix_service::Service;
-use actix_web::{Error, HttpRequest, HttpResponse};
-use actix_web::dev::{ServiceRequest, ServiceResponse};
-use std::time::{Instant, Duration};
-use std::sync::Mutex;
-use std::collections::HashMap;
-use std::sync::Arc;
-use futures::future::{ok, Ready};
+use actix_web::{
+    dev::{Service, ServiceRequest, ServiceResponse, Transform},
+    Error, HttpResponse,
+    body::{BoxBody, MessageBody},
+};
+use futures::future::{ok, Ready, LocalBoxFuture};
+use std::{
+    task::{Context, Poll},
+    sync::{Arc, Mutex},
+    collections::HashMap,
+    time::{Instant, Duration},
+};
 
 #[derive(Clone)]
 pub struct RateLimiter {
@@ -22,13 +26,29 @@ impl RateLimiter {
             window_duration,
         }
     }
+
+    fn is_rate_limited(&self, client_ip: &str) -> bool {
+        let mut requests = self.requests.lock().unwrap();
+        let now = Instant::now();
+        
+        let timestamps = requests.entry(client_ip.to_string()).or_insert_with(Vec::new);
+        timestamps.retain(|&time| now.duration_since(time) < self.window_duration);
+        
+        if timestamps.len() >= self.max_requests {
+            return true;
+        }
+        
+        timestamps.push(now);
+        false
+    }
 }
 
-impl<S> actix_service::Transform<S> for RateLimiter
+impl<S, B> Transform<S, ServiceRequest> for RateLimiter
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
     type Transform = RateLimiterMiddleware<S>;
     type InitError = ();
@@ -47,35 +67,41 @@ pub struct RateLimiterMiddleware<S> {
     rate_limiter: RateLimiter,
 }
 
-impl<S> Service for RateLimiterMiddleware<S>
+impl<S, B> Service<ServiceRequest> for RateLimiterMiddleware<S>
 where
-    S: Service<Request = ServiceRequest, Response = ServiceResponse, Error = Error>,
+    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
+    B: MessageBody + 'static,
 {
-    type Response = ServiceResponse;
+    type Response = ServiceResponse<BoxBody>;
     type Error = Error;
-    type Future = futures::future::BoxFuture<'static, Result<Self::Response, Self::Error>>;
+    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
     }
 
-    fn call(&mut self, req: ServiceRequest) -> Self::Future {
-        let client_ip = req.peer_addr().map(|addr| addr.ip().to_string()).unwrap_or_default();
-        let now = Instant::now();
-        
-        let mut requests = self.rate_limiter.requests.lock().unwrap();
-        let timestamps = requests.entry(client_ip.clone()).or_insert_with(Vec::new);
+    fn call(&self, req: ServiceRequest) -> Self::Future {
+        let client_ip = req
+            .connection_info()
+            .peer_addr()
+            .unwrap_or("unknown")
+            .to_string();
 
-        // Cleanup old timestamps
-        timestamps.retain(|&time| now.duration_since(time) < self.rate_limiter.window_duration);
-        
-        if timestamps.len() >= self.rate_limiter.max_requests {
-            return Box::pin(async {
-                Ok(req.error_response(HttpResponse::TooManyRequests().finish()))
+        if self.rate_limiter.is_rate_limited(&client_ip) {
+            let response = HttpResponse::TooManyRequests()
+                .body("Rate limit exceeded. Please try again later.");
+            return Box::pin(async move {
+                Ok(ServiceResponse::new(
+                    req.into_parts().0,
+                    response.map_into_boxed_body(),
+                ))
             });
         }
 
-        timestamps.push(now);
-        self.service.call(req)
+        let fut = self.service.call(req);
+        Box::pin(async move {
+            let res = fut.await?;
+            Ok(res.map_into_boxed_body())
+        })
     }
 }

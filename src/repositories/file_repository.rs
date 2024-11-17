@@ -1,4 +1,4 @@
-use crate::models::File;
+use crate::models::file::File;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

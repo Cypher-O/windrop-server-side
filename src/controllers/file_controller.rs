@@ -1,83 +1,87 @@
+use actix_web::{web, HttpResponse, Error, Result};
 use actix_multipart::Multipart;
-use futures_util::stream::StreamExt;
-use futures_util::sink::SinkExt;
-use std::io::Write;
-use uuid::Uuid;
-use crate::models::{ApiResponse, File};
-use crate::services::FileService;
-use actix_web::{web, HttpResponse, Responder, post, get};
+use futures_util::StreamExt;
+use crate::services::file_service::FileService;
+use crate::models::response::ApiResponse;
+use actix_web::http::header::{ContentDisposition, DispositionType, DispositionParam};
+use tokio::io::BufReader;
+use tokio_util::io::ReaderStream;
 
-
-#[post("/upload")]
-pub async fn upload_file(mut payload: Multipart, file_service: web::Data<FileService>) -> impl Responder {
-    let mut file_id = String::new();
-    let mut file_name = String::new();
-    let mut file_size: u64 = 0;
-
-    // Iterate through the multipart payload
+pub async fn upload_file(
+    mut payload: Multipart, 
+    file_service: web::Data<FileService>
+) -> Result<HttpResponse, Error> {
     while let Some(item) = payload.next().await {
-        let mut field = item.unwrap();
-        file_name = field.name().to_string();
+        let field = item?;
         
-        // Simulate saving the file by counting bytes
-        while let Some(chunk) = field.next().await {
-            let chunk = chunk.unwrap();
-            file_size += chunk.len() as u64;
+        match file_service.save_file(field).await {
+            Ok(file) => {
+                let response = ApiResponse::new(
+                    0,
+                    "success",
+                    "File uploaded successfully",
+                    Some(file),
+                );
+                return Ok(HttpResponse::Created().json(response));
+            }
+            Err(e) => {
+                return Ok(HttpResponse::InternalServerError().json(ApiResponse::<()>::new(
+                    1,
+                    "error",
+                    &format!("Failed to save file: {}", e),
+                    None,
+                )));
+            }
         }
     }
-
-    // Ensure a file is actually uploaded
-    if file_size == 0 {
-        return HttpResponse::BadRequest().json(ApiResponse::<File>::new(
-            1, 
-            "error", 
-            "No file data received", 
-            None
-        ));
-    }
-
-    // Simulate creating a file object
-    file_id = Uuid::new_v4().to_string();
-    let file = File::new(file_id.clone(), file_name, file_size, vec![]); // For now, an empty data vector
-
-    // Add to file service (this is an in-memory service in this case)
-    file_service.add_file(file.clone());
-
-    // Construct the API response
-    let response = ApiResponse::<File>::new(
-        0,
-        "success",
-        "File uploaded successfully",
-        Some(file),
-    );
-
-    HttpResponse::Created().json(response)  // Return the response as JSON
+    
+    Ok(HttpResponse::BadRequest().json(ApiResponse::<()>::new(
+        1,
+        "error",
+        "No file provided",
+        None,
+    )))
 }
 
-#[get("/files/{id}")]
-pub async fn get_file(file_id: web::Path<String>, file_service: web::Data<FileService>) -> impl Responder {
-    let file_id = file_id.into_inner();
+pub async fn get_file(
+    file_id: web::Path<String>,
+    file_service: web::Data<FileService>,
+) -> Result<HttpResponse, Error> {
+    match file_service.read_file(&file_id).await {
+        Ok((file_info, file_handle)) => {
+            // Get file size
+            let metadata = file_handle.metadata().await?;
+            let file_size = metadata.len();
 
-    // Retrieve file from the service
-    if let Some(file) = file_service.get_file(&file_id) {
-        // Construct the API response
-        let response = ApiResponse::<File>::new(
-            0,
-            "success",
-            "File retrieved successfully",
-            Some(file),
-        );
+            // Create buffered reader with a reasonable buffer size
+            let reader = BufReader::with_capacity(8192, file_handle);
+            
+            // Create stream with chunks
+            let stream = ReaderStream::new(reader);
+            
+            // Determine content type
+            let content_type = mime_guess::from_path(&file_info.filename)
+                .first_or_octet_stream();
 
-        HttpResponse::Ok().json(response)  // Return file data as JSON
-    } else {
-        // If file not found, return error response
-        let response = ApiResponse::<File>::new(
-            1,
-            "error",
-            "File not found",
-            None,
-        );
-
-        HttpResponse::NotFound().json(response)  // Return 404 with error message
+            // Build response with proper headers
+            Ok(HttpResponse::Ok()
+                .insert_header(("Content-Type", content_type.as_ref()))
+                .insert_header(("Content-Length", file_size.to_string()))
+                .insert_header(ContentDisposition {
+                    disposition: DispositionType::Attachment,
+                    parameters: vec![DispositionParam::Filename(file_info.filename)],
+                })
+                .insert_header(("Accept-Ranges", "bytes"))
+                .streaming(stream))
+        }
+        Err(e) => {
+            log::error!("File retrieval error: {}", e);
+            Ok(HttpResponse::NotFound().json(ApiResponse::<()>::new(
+                1,
+                "error",
+                &format!("File error: {}", e),
+                None,
+            )))
+        }
     }
 }
