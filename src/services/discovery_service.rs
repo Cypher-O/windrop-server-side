@@ -1,18 +1,11 @@
-use std::time::{Duration, Instant};
-use std::{collections::HashMap};
+use std::collections::HashMap;
 use std::sync::RwLock;
-use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use crate::models::device::DeviceInfo;
 
 pub struct DiscoveryService {
     devices: RwLock<HashMap<String, DeviceInfo>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    pub id: String,
-    pub name: String,
-    pub last_seen: Instant,
 }
 
 impl DiscoveryService {
@@ -26,7 +19,7 @@ impl DiscoveryService {
         let device = DeviceInfo {
             id: Uuid::new_v4().to_string(),
             name,
-            last_seen: Instant::now(),
+            last_seen: Utc::now(),
         };
 
         self.devices
@@ -38,11 +31,14 @@ impl DiscoveryService {
     }
 
     pub fn get_nearby_devices(&self) -> Vec<DeviceInfo> {
+        let now = Utc::now();
         self.devices
             .read()
             .unwrap()
             .values()
-            .filter(|device| device.last_seen.elapsed() < Duration::from_secs(30))
+            .filter(|device| {
+                (now - device.last_seen).num_seconds() < 30
+            })
             .cloned()
             .collect()
     }

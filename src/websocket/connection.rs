@@ -1,5 +1,6 @@
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_web_actors::ws;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -8,34 +9,41 @@ const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum FileTransferMessage {
     TransferRequest {
         file_id: String,
         filename: String,
         size: u64,
+        timestamp: DateTime<Utc>,
     },
     TransferAccept {
         file_id: String,
+        timestamp: DateTime<Utc>,
     },
     TransferReject {
         file_id: String,
+        timestamp: DateTime<Utc>,
     },
     TransferProgress {
         file_id: String,
         bytes_transferred: u64,
         total_bytes: u64,
+        timestamp: DateTime<Utc>,
     },
     TransferComplete {
         file_id: String,
+        timestamp: DateTime<Utc>,
     },
     Error {
         message: String,
+        timestamp: DateTime<Utc>,
     },
 }
 
 pub struct FileTransferWs {
     id: String,
-    hb: Instant,
+    hb: Instant,  // This is only used internally, not for serialization
     device_name: String,
 }
 
@@ -79,10 +87,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for FileTransferWs {
             }
             Ok(ws::Message::Text(text)) => {
                 if let Ok(message) = serde_json::from_str::<FileTransferMessage>(&text) {
-                    // Handle different message types
                     match message {
                         FileTransferMessage::TransferRequest { .. } => {
-                            // Notify other connected clients about the transfer request
                             ctx.text(text);
                         }
                         _ => {
