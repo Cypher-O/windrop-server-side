@@ -4,10 +4,12 @@ mod services;
 mod repositories;
 mod middleware;
 mod storage;
+mod websocket;
 
 use actix_web::{web, App, HttpServer};
 use actix_web::middleware::Logger as ActixLogger;
 use actix_cors::Cors;
+use controllers::websocket_controller;
 use services::file_service::FileService;
 use controllers::file_controller::{upload_file, get_file};
 use crate::middleware::{logger::RequestLogger, rate_limit::RateLimiter};
@@ -53,6 +55,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api")
                     .route("/upload", web::post().to(upload_file))
                     .route("/files/{id}", web::get().to(get_file))
+                    .route("/ws", web::get().to(websocket_controller::websocket_route))
             )
     })
     .workers(4)
