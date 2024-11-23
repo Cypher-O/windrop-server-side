@@ -65,4 +65,23 @@ You can customize the rate-limiting behavior by adjusting the `max_requests` and
 ### Example Rate Limiting Configuration
 
 ```rust
-let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));  // 100 requests per minute
+let rate_limiter = RateLimiter::new(100, Duration::from_secs(60));
+```
+
+## API Endpoints
+
+### Upload a File
+
+- **Endpoint**: `/api/upload`
+- **Method**: `POST`
+- **Description**: Uploads a file and stores it on the server.
+- **Request**: Multipart form-data containing the file.
+- **Response**: Returns a JSON response with the status and file metadata if successful, or an error message if the upload fails.
+
+## Contributing
+
+- We welcome contributions! If you'd like to contribute to Windrop, please fork the repository, create a new branch, and submit a pull request with your changes. Be sure to include a description of the changes in your PR.
+
+## License
+
+- This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
