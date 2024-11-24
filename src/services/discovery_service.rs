@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
-use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use chrono::Utc;
 use crate::models::device::DeviceInfo;
 
 pub struct DiscoveryService {
@@ -15,9 +14,9 @@ impl DiscoveryService {
         }
     }
 
-    pub fn register_device(&self, name: String) -> DeviceInfo {
+    pub fn register_device(&self, id: String, name: String) {
         let device = DeviceInfo {
-            id: Uuid::new_v4().to_string(),
+            id: id.clone(),
             name,
             last_seen: Utc::now(),
         };
@@ -25,9 +24,17 @@ impl DiscoveryService {
         self.devices
             .write()
             .unwrap()
-            .insert(device.id.clone(), device.clone());
+            .insert(id, device);
+    }
 
-        device
+    pub fn update_device_timestamp(&self, id: &str) {
+        if let Some(device) = self.devices.write().unwrap().get_mut(id) {
+            device.last_seen = Utc::now();
+        }
+    }
+
+    pub fn remove_device(&self, id: &str) {
+        self.devices.write().unwrap().remove(id);
     }
 
     pub fn get_nearby_devices(&self) -> Vec<DeviceInfo> {
