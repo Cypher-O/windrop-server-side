@@ -1,68 +1,64 @@
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_web_actors::ws;
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use std::time::{Duration, Instant};
+use chrono::Utc;
 use uuid::Uuid;
+use std::time::{Duration, Instant};
+use crate::services::discovery_service::DiscoveryService;
+use std::sync::Arc;
+
+use super::message::FileTransferMessage;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum FileTransferMessage {
-    TransferRequest {
-        file_id: String,
-        filename: String,
-        size: u64,
-        timestamp: DateTime<Utc>,
-    },
-    TransferAccept {
-        file_id: String,
-        timestamp: DateTime<Utc>,
-    },
-    TransferReject {
-        file_id: String,
-        timestamp: DateTime<Utc>,
-    },
-    TransferProgress {
-        file_id: String,
-        bytes_transferred: u64,
-        total_bytes: u64,
-        timestamp: DateTime<Utc>,
-    },
-    TransferComplete {
-        file_id: String,
-        timestamp: DateTime<Utc>,
-    },
-    Error {
-        message: String,
-        timestamp: DateTime<Utc>,
-    },
-}
+const DISCOVERY_INTERVAL: Duration = Duration::from_secs(10);
 
 pub struct FileTransferWs {
-    id: String,
-    hb: Instant,  // This is only used internally, not for serialization
-    device_name: String,
+    pub id: String,
+    pub device_name: String,
+    hb: Instant,
+    discovery_service: Arc<DiscoveryService>,
 }
 
 impl FileTransferWs {
-    pub fn new(device_name: String) -> Self {
+    pub fn new(device_name: String, discovery_service: Arc<DiscoveryService>) -> Self {
+        let id = Uuid::new_v4().to_string();
+        // Register device when creating WebSocket connection
+        discovery_service.register_device(id.clone(), device_name.clone());
+        
         Self {
-            id: Uuid::new_v4().to_string(),
-            hb: Instant::now(),
+            id,
             device_name,
+            hb: Instant::now(),
+            discovery_service,
         }
     }
 
     fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                act.discovery_service.remove_device(&act.id);
                 ctx.stop();
                 return;
             }
             ctx.ping(b"");
+        });
+    }
+
+    fn start_discovery(&self, ctx: &mut <Self as Actor>::Context) {
+        ctx.run_interval(DISCOVERY_INTERVAL, |act, ctx| {
+            // Update device's last seen timestamp
+            act.discovery_service.update_device_timestamp(&act.id);
+            
+            // Get nearby devices and send to client
+            let devices = act.discovery_service.get_nearby_devices();
+            let message = FileTransferMessage::DeviceList {
+                devices,
+                timestamp: Utc::now(),
+            };
+            
+            if let Ok(json) = serde_json::to_string(&message) {
+                ctx.text(json);
+            }
         });
     }
 }
@@ -72,6 +68,11 @@ impl Actor for FileTransferWs {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         self.heartbeat(ctx);
+        self.start_discovery(ctx);
+    }
+
+    fn stopped(&mut self, _: &mut Self::Context) {
+        self.discovery_service.remove_device(&self.id);
     }
 }
 
@@ -88,8 +89,15 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for FileTransferWs {
             Ok(ws::Message::Text(text)) => {
                 if let Ok(message) = serde_json::from_str::<FileTransferMessage>(&text) {
                     match message {
-                        FileTransferMessage::TransferRequest { .. } => {
-                            ctx.text(text);
+                        FileTransferMessage::DeviceDiscovery { .. } => {
+                            let devices = self.discovery_service.get_nearby_devices();
+                            let response = FileTransferMessage::DeviceList {
+                                devices,
+                                timestamp: Utc::now(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                ctx.text(json);
+                            }
                         }
                         _ => {
                             ctx.text(text);
@@ -98,6 +106,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for FileTransferWs {
                 }
             }
             Ok(ws::Message::Close(reason)) => {
+                self.discovery_service.remove_device(&self.id);
                 ctx.close(reason);
                 ctx.stop();
             }
