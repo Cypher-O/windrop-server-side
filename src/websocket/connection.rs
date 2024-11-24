@@ -1,11 +1,11 @@
 use actix::{Actor, ActorContext, AsyncContext, StreamHandler};
 use actix_web_actors::ws;
 use chrono::Utc;
-use uuid::Uuid;
-use std::time::{Duration, Instant};
-use crate::services::discovery_service::DiscoveryService;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+use uuid::Uuid;
 
+use crate::services::discovery_service::DiscoveryService;
 use super::message::FileTransferMessage;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
@@ -13,8 +13,8 @@ const CLIENT_TIMEOUT: Duration = Duration::from_secs(10);
 const DISCOVERY_INTERVAL: Duration = Duration::from_secs(10);
 
 pub struct FileTransferWs {
-    pub id: String,
-    pub device_name: String,
+    id: String,
+    device_name: String,
     hb: Instant,
     discovery_service: Arc<DiscoveryService>,
 }
@@ -22,7 +22,6 @@ pub struct FileTransferWs {
 impl FileTransferWs {
     pub fn new(device_name: String, discovery_service: Arc<DiscoveryService>) -> Self {
         let id = Uuid::new_v4().to_string();
-        // Register device when creating WebSocket connection
         discovery_service.register_device(id.clone(), device_name.clone());
         
         Self {
@@ -36,6 +35,7 @@ impl FileTransferWs {
     fn heartbeat(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(HEARTBEAT_INTERVAL, |act, ctx| {
             if Instant::now().duration_since(act.hb) > CLIENT_TIMEOUT {
+                log::info!("Client timeout, disconnecting: {}", act.id);
                 act.discovery_service.remove_device(&act.id);
                 ctx.stop();
                 return;
@@ -46,10 +46,7 @@ impl FileTransferWs {
 
     fn start_discovery(&self, ctx: &mut <Self as Actor>::Context) {
         ctx.run_interval(DISCOVERY_INTERVAL, |act, ctx| {
-            // Update device's last seen timestamp
             act.discovery_service.update_device_timestamp(&act.id);
-            
-            // Get nearby devices and send to client
             let devices = act.discovery_service.get_nearby_devices();
             let message = FileTransferMessage::DeviceList {
                 devices,
@@ -67,11 +64,13 @@ impl Actor for FileTransferWs {
     type Context = ws::WebsocketContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        log::info!("WebSocket connection started for device: {}", self.device_name);
         self.heartbeat(ctx);
         self.start_discovery(ctx);
     }
 
     fn stopped(&mut self, _: &mut Self::Context) {
+        log::info!("WebSocket connection stopped for device: {}", self.device_name);
         self.discovery_service.remove_device(&self.id);
     }
 }
