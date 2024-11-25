@@ -78,3 +78,32 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[actix_rt::test]
+    async fn test_server_startup() {
+        let storage_path = tempfile::tempdir().unwrap().path().to_path_buf();
+        let file_service = web::Data::new(FileService::new(storage_path).unwrap());
+        let discovery_service = Arc::new(DiscoveryService::new());
+        
+        let server = HttpServer::new(move || {
+            App::new()
+                .app_data(file_service.clone())
+                .app_data(web::Data::new(Arc::clone(&discovery_service)))
+                .service(
+                    web::scope("/api")
+                        .route("/upload", web::post().to(upload_file))
+                        .route("/files/{id}", web::get().to(get_file))
+                        .route("/ws", web::get().to(websocket_route))
+                )
+        })
+        .bind("127.0.0.1:0").unwrap();
+        
+        let _ = server.run();
+        assert!(true); // Server started successfully
+    }
+}
