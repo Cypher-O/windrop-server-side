@@ -209,12 +209,103 @@
         }
 
         // Utility functions from previous implementation...
-        async function readChunkAsBase64(chunk) { /* ... */ }
-        function formatBytes(bytes) { /* ... */ }
-        function handleIncomingFileTransfer(message) { /* ... */ }
-        async function handleFileChunk(message) { /* ... */ }
-        function completeFileTransfer(message) { /* ... */ }
-        function handleTransferError(message) { /* ... */ }
+        async function readChunkAsBase64(chunk) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = reject;
+                reader.readAsDataURL(chunk);
+            });
+        }
+        
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const dm = decimals < 0 ? 0 : decimals;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+        }
+        
+        function handleIncomingFileTransfer(message) {
+            const transferId = message.transfer_id;
+            const transferElement = createTransferElement({
+                name: message.filename, 
+                size: message.file_size
+            }, transferId, message.total_chunks);
+            
+            document.getElementById('transferList').appendChild(transferElement);
+            
+            // Store transfer details 
+            transfers.set(transferId, {
+                filename: message.filename,
+                totalSize: message.file_size,
+                receivedChunks: [],
+                totalChunks: message.total_chunks
+            });
+        
+            // Send acceptance 
+            ws.send(JSON.stringify({
+                type: "TransferAccept",
+                file_id: transferId,
+                timestamp: new Date().toISOString()
+            }));
+        }
+        
+        async function handleFileChunk(message) {
+            const transfer = transfers.get(message.transfer_id);
+            if (!transfer) return;
+        
+            // Decode base64 chunk
+            const chunkData = atob(message.data);
+            const uint8Array = new Uint8Array(chunkData.length);
+            for (let i = 0; i < chunkData.length; i++) {
+                uint8Array[i] = chunkData.charCodeAt(i);
+            }
+        
+            transfer.receivedChunks[message.chunk_index] = uint8Array;
+        
+            // Update progress
+            ws.send(JSON.stringify({
+                type: "TransferProgress",
+                file_id: message.transfer_id,
+                bytes_transferred: (message.chunk_index + 1) * CHUNK_SIZE,
+                total_bytes: transfer.totalSize,
+                timestamp: new Date().toISOString()
+            }));
+        
+            // Check if transfer is complete
+            if (transfer.receivedChunks.filter(chunk => chunk).length === transfer.totalChunks) {
+                completeFileTransfer(message);
+            }
+        }
+        
+        function completeFileTransfer(message) {
+            const transfer = transfers.get(message.transfer_id);
+            if (!transfer) return;
+        
+            // Combine chunks
+            const blob = new Blob(transfer.receivedChunks, { type: 'application/octet-stream' });
+            const url = window.URL.createObjectURL(blob);
+            
+            // Create download link
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = transfer.filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        
+            // Clean up
+            transfers.delete(message.transfer_id);
+            const transferElement = document.getElementById(`transfer-${message.transfer_id}`);
+            if (transferElement) transferElement.remove();
+        }
+        
+        function handleTransferError(message) {
+            console.error('Transfer Error:', message);
+            alert(`File transfer error: ${message.message}`);
+        }
 
         connectWebSocket();
     </script>
