@@ -1,6 +1,8 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
     <title>Secure File Transfer</title>
     <style>
         body { font-family: Arial, sans-serif; max-width: 800px; margin: auto; }
@@ -24,7 +26,9 @@
 <body>
     <div>
         <h2>Secure File Transfer</h2>
+        <label for="fileInput">Choose a file to upload:</label>
         <input type="file" id="fileInput" />
+        <label for="receiverSelect">Select a recipient:</label>
         <select id="receiverSelect">
             <option value="">Select receiver...</option>
         </select>
