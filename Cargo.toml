@@ -27,6 +27,8 @@ sanitize-filename = "0.4"
 mime_guess = "2.0"
 tokio-util = { version = "0.6", features = ["io"] } 
 num_cpus = "1.13"
+utoipa = { version="5.2.0", features = ["actix_extras"]}
+utoipa-swagger-ui = {version="8.0.3", features=["actix-web"]}
 
 
 [dev-dependencies]
